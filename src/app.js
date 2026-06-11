@@ -8,7 +8,7 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/api/hello', (req, res) => {
-  res.json({ message: 'Hello from CI/CD pipeline!', version: process.env.APP_VERSION || '1.0.0' });
+  res.json({ message: 'Olá esse é meu projeto, fiquei muiro feliz que deu certo / Hi this is my project i´m so happy with this deploy', version: process.env.APP_VERSION || '1.0.0' });
 });
 
 app.get('/api/info', (req, res) => {
