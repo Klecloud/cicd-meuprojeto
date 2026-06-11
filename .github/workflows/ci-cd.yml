@@ -1,0 +1,110 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  IMAGE_NAME: cicd-portfolio
+
+jobs:
+  # ─── JOB 1: Testes ───────────────────────────────────────
+  test:
+    name: Testes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Instala dependências
+        run: npm ci
+
+      - name: Roda os testes
+        run: npm test
+
+      - name: Upload do relatório de cobertura
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+
+  # ─── JOB 2: Build e Push para ECR (só na main) ───────────
+  build-and-push:
+    name: Build e Push Docker
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Gera tag da imagem
+        id: meta
+        run: echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+
+      - name: Configura credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login no Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag e push da imagem Docker
+        run: |
+          docker build \
+            --tag ${{ secrets.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }} \
+            --tag ${{ secrets.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            .
+
+          docker push ${{ secrets.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
+          docker push ${{ secrets.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+  # ─── JOB 3: Deploy no EC2 ────────────────────────────────
+  deploy:
+    name: Deploy EC2
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            chmod +x ~/deploy.sh
+            ~/deploy.sh \
+              ${{ secrets.ECR_REGISTRY }} \
+              cicd-portfolio \
+              ${{ needs.build-and-push.outputs.image-tag }}
+
+      - name: Verifica o deploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sleep 5
+            curl -f http://localhost:3000/health || exit 1
+            echo "Deploy verificado com sucesso!"
