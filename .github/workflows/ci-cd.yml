@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 env:
-  IMAGE_NAME: cicd-portfolio
+  IMAGE_NAME: cicd-meuprojeto
 
 jobs:
   # ─── JOB 1: Testes ───────────────────────────────────────
@@ -95,7 +95,7 @@ jobs:
             chmod +x ~/deploy.sh
             ~/deploy.sh \
               ${{ secrets.ECR_REGISTRY }} \
-              cicd-portfolio \
+              cicd-meuprojeto \
               ${{ needs.build-and-push.outputs.image-tag }}
 
       - name: Verifica o deploy
